@@ -1,0 +1,96 @@
+# R code for number of deaths and daily maximum temperature
+library(dlnm)
+library(splines)
+
+# loading databese
+tokyodeath_Tmax<-read.csv("tokyodeath_Tmax.csv")
+
+# convert days of week to factor type
+tokyodeath_Tmax$dow<-factor(tokyodeath_Tmax$dow,levels = c(
+  "Sunday",
+  "Monday",
+  "Tuesday",
+  "Wednesday",
+  "Thursday",
+  "Friday",
+  "Saturday"
+))
+
+# rounded to the nearest whole number of deaths
+tokyodeath_Tmax$deathall<-round(tokyodeath_Tmax$deathall,digits = 0)
+
+# creating AIC (glm with AIC-based knot selection)
+#glm with AIC-based knot selction
+fqaic_Tmax<-function(model.Tmax){
+  loglik<-sum(dpois(model.Tmax$y,model.Tmax$fitted.values,log = TRUE))
+  phi<-summary(model.Tmax)$dispersion
+  qaic<- -2*loglik+2*summary(model.Tmax)$df[3]*phi
+  return(qaic)
+}
+
+# knots grid
+grid<-as.matrix(expand.grid(var=1:8,lag=1:8))
+
+# serch
+system.time({
+  aicval<-sapply(seq(nrow(grid)),function(i){
+    varknots_Tmax<-equalknots(tokyodeath_Tmax$temp,nk=grid[i,1])
+    lagknots_Tmax<-logknots(30,nk=grid[i,2])
+    cb.Tmax<-crossbasis(tokyodeath_Tmax$temp,lag=30,
+                        argvar = list(fun="bs",degree=2,knots=varknots_Tmax),
+                        arglag = list(knots=lagknots_Tmax))
+    model.Tmax<-glm(deathall~cb.Tmax+ns(tokyodeath_Tmax$time,10*15),
+                    family=quasipoisson(),tokyodeath_Tmax)
+    return(fqaic_Tmax(model.Tmax))
+  })
+})
+
+# best fitting model
+(best<-grid[which.min(aicval),])
+plot(aicval,col=2,pch=19)
+
+# define the cross-basis
+varknots_Tmax<-equalknots(tokyodeath_Tmax$temp,nk=best[1])
+lagknots_Tmax<-logknots(30,nk=best[2])
+cb.Tmax<-crossbasis(tokyodeath_Tmax$temp,lag=30,
+                    argvar = list(fun="bs",degree=2,knots=varknots_Tmax),
+                    arglag = list(knots=lagknots_Tmax))
+summary(cb.Tmax)
+
+# run the model
+model.Tmax<-glm(deathall~cb.Tmax+ns(tokyodeath_Tmax$time,10*15),
+                family=quasipoisson(),tokyodeath_Tmax)
+summary(model.Tmax)
+
+# identification of AIC
+fqaic_Tmax(model.Tmax)
+
+# run the predict
+pred3d.Tmax<-crosspred(cb.Tmax,model.Tmax,at=2.6:39,cen=30.8)
+predsl.Tmax<-crosspred(cb.Tmax,model.Tmax,by=0.1,bylag=1,cen=30.8)
+summary(pred3d.Tmax)
+summary(predsl.Tmax)
+
+# identification of minimum and maximum Relative Risk
+which.min(predsl.Tmax$allRRfit)
+predsl.Tmax$allRRfit["2.6"]
+which.max(predsl.Tmax$allRRfit)
+predsl.Tmax$allRRfit["39"]
+
+# figure creation
+plot(pred3d.Tmax,xlab="daily maximum temperature(C)",zlab="RR",zlim=c(0.96,1.032),xlim=c(2.6,40),
+     ltheta=170,phi=35,lphi=30,main="GLM with AIC-based knot selection")
+
+plot(predsl.Tmax,"overall",xlab="daily maximum temperature(C)",ylab="RR",xlim=c(2.6,40),
+     ylim=c(0.7,1.2),ci="n",col=2,lwd=2,
+     main="GLM with AIC-based knot selection")
+
+plot(predsl.Tmax,"contour",xlab="daily maximum temperature",key.title=title("RR"),
+     plot.title=title("Contour plot",xlab="daily maximum temperature",ylab="Lag"))
+
+plot(predsl.Tmax,"slices",ylab="RR",
+     var=c(2.6,20.6,39),lag=c(0,15,30),col=2,
+     ci.arg = list(density=40,col=grey(0.7)))
+
+# dataframe creation
+data.frame(predsl.Tmax$allRRfit)
