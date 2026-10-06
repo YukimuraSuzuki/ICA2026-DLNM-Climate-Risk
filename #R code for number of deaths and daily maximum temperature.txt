@@ -2,7 +2,7 @@
 library(dlnm)
 library(splines)
 
-# loading databese
+# loading database
 tokyodeath_Tmax<-read.csv("tokyodeath_Tmax.csv")
 
 # convert days of week to factor type
